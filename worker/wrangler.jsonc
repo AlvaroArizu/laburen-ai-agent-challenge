@@ -2,13 +2,8 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "worker",
   "main": "src/index.ts",
-
-  // ✅ ya cumple con el mínimo para nodejs_compat_v2 automático
   "compatibility_date": "2025-09-27",
-
-  // ✅ clave para que no reviente por "path", "node:os", etc.
   "compatibility_flags": ["nodejs_compat"],
-
   "observability": { "enabled": true },
 
   "d1_databases": [
@@ -17,9 +12,13 @@
       "database_name": "laburen_challenge",
       "database_id": "82ce6f6d-b512-4bd8-98f0-1e501c1fe606"
     }
-  ]
+  ],
 
-  // (Opcional) Si querés setear MCP_AUTH_TOKEN como variable NO secreta:
-  // "vars": { "MCP_AUTH_TOKEN": "..." }
+  "vars": {
+    "LOG_TO_DB": "true",
+    "LOG_BODY_MAX": "1500",
+    "MCP_AUTH_DISABLED": "true"
+  }
 }
+
 
