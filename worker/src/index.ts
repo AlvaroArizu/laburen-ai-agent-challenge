@@ -1,3 +1,12 @@
+// index.ts (Cloudflare Workers + D1 + MCP)
+//  Ajustado para el desafío: tools MCP con nombres alineados
+// - list_products
+// - create_cart
+// - update_cart
+// + get_product_details (para detalle por ID)
+//  Cálculo correcto de precios por volumen (tiers) SIEMPRE desde backend (D1)
+//  El carrito devuelve unit_price aplicado según qty + total correcto
+
 import { createMcpHandler } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -9,22 +18,12 @@ export interface Env {
 
 /**
  * ============================
- * Seguridad MCP (NO USADA - desactivada para debug)
+ * Seguridad MCP (desactivada para debug)
  * ============================
  */
-function isAuthorized(request: Request, env: Env) {
-  const auth = (request.headers.get("authorization") || "").trim();
-  if (auth === `Bearer ${env.MCP_AUTH_TOKEN}`) return true;
-
-  const url = new URL(request.url);
-  const token =
-    (url.searchParams.get("token") || "").trim() ||
-    (url.searchParams.get("auth") || "").trim() ||
-    (url.searchParams.get("mcp_auth_token") || "").trim();
-
-  return token === env.MCP_AUTH_TOKEN;
+function isAuthorized(_request: Request, _env: Env) {
+  return true; // 👈 dejalo true para el challenge/debug
 }
-
 function unauthorized() {
   return new Response("Unauthorized", { status: 401 });
 }
@@ -40,18 +39,15 @@ function json(data: unknown, status = 200) {
     headers: { "content-type": "application/json; charset=utf-8" },
   });
 }
-
 function badRequest(message: string, details?: unknown) {
   return json({ error: "bad_request", message, details }, 400);
 }
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Access-Control-Max-Age": "86400",
 };
-
 function handleOptions(request: Request) {
   if (
     request.headers.get("Origin") !== null &&
@@ -60,21 +56,61 @@ function handleOptions(request: Request) {
   ) {
     return new Response(null, { headers: corsHeaders });
   }
-  return new Response(null, {
-    headers: { Allow: "GET, HEAD, POST, OPTIONS" },
-  });
+  return new Response(null, { headers: { Allow: "GET, HEAD, POST, OPTIONS" } });
 }
-
 function notFound(path?: string) {
   return json({ error: "not_found", path }, 404);
 }
-
 async function readJson<T>(request: Request): Promise<T> {
   const ct = request.headers.get("content-type") || "";
-  if (!ct.includes("application/json")) {
-    throw new Error("Content-Type must be application/json");
-  }
+  if (!ct.includes("application/json")) throw new Error("Content-Type must be application/json");
   return (await request.json()) as T;
+}
+
+/**
+ * ============================
+ * Pricing helpers (tiers)
+ * ============================
+ * Regla:
+ * - unit_price base = products.price
+ * - si hay tiers en product_price_tiers, aplica el mayor min_qty <= qty
+ *   (ej: qty=60 aplica min_qty=50; qty=120 aplica min_qty=100; etc.)
+ */
+async function getUnitPriceForQty(env: Env, product_id: number, qty: number) {
+  const base = await env.DB.prepare(
+    `SELECT id, price, stock, disponible FROM products WHERE id = ?`
+  )
+    .bind(product_id)
+    .first<any>();
+
+  if (!base || Number(base.disponible) !== 1) {
+    return { ok: false as const, error: "product_not_found_or_not_available" as const };
+  }
+
+  const basePrice = Number(base.price);
+  const stock = Number(base.stock);
+
+  // Busca el tier más alto aplicable: max(min_qty) <= qty
+  const tier = await env.DB.prepare(
+    `SELECT min_qty, price
+     FROM product_price_tiers
+     WHERE product_id = ? AND min_qty <= ?
+     ORDER BY min_qty DESC
+     LIMIT 1`
+  )
+    .bind(product_id, qty)
+    .first<any>();
+
+  const unit_price = tier ? Number(tier.price) : basePrice;
+  const applied_min_qty = tier ? Number(tier.min_qty) : 1;
+
+  return {
+    ok: true as const,
+    unit_price,
+    applied_min_qty,
+    stock,
+    base_price: basePrice,
+  };
 }
 
 /**
@@ -118,8 +154,8 @@ async function getCart(env: Env, conversation_id: string) {
       ci.qty,
       p.name,
       p.description,
-      p.price as unit_price,
-      p.stock
+      p.stock,
+      p.price AS base_price
     FROM cart_items ci
     JOIN products p ON p.id = ci.product_id
     WHERE ci.cart_id = ?
@@ -128,16 +164,40 @@ async function getCart(env: Env, conversation_id: string) {
     .bind(cart.id)
     .all<any>();
 
-  const line_items = items.results.map((r: any) => ({
-    product_id: Number(r.product_id),
-    name: r.name,
-    qty: Number(r.qty),
-    unit_price: Number(r.unit_price),
-    line_total: Number(r.unit_price) * Number(r.qty),
-    stock: Number(r.stock),
-  }));
+  const line_items = [];
+  for (const r of items.results) {
+    const product_id = Number(r.product_id);
+    const qty = Number(r.qty);
 
-  const total = line_items.reduce((acc: number, x: any) => acc + x.line_total, 0);
+    const pricing = await getUnitPriceForQty(env, product_id, qty);
+    if (!pricing.ok) {
+      // si el producto dejó de estar disponible, igual devolvemos info mínima
+      line_items.push({
+        product_id,
+        name: r.name,
+        qty,
+        unit_price: Number(r.base_price),
+        applied_min_qty: 1,
+        line_total: Number(r.base_price) * qty,
+        stock: Number(r.stock),
+        note: "pricing_fallback_base_price",
+      });
+      continue;
+    }
+
+    const unit_price = pricing.unit_price;
+    line_items.push({
+      product_id,
+      name: r.name,
+      qty,
+      unit_price,
+      applied_min_qty: pricing.applied_min_qty, // 1 / 50 / 100 / 200...
+      line_total: unit_price * qty,
+      stock: pricing.stock,
+    });
+  }
+
+  const total = line_items.reduce((acc: number, x: any) => acc + Number(x.line_total || 0), 0);
 
   return {
     cart,
@@ -148,7 +208,7 @@ async function getCart(env: Env, conversation_id: string) {
 
 /**
  * ============================
- * MCP server factory (captura env por request)
+ * MCP server factory
  * ============================
  */
 function buildMcpServer(env: Env) {
@@ -161,14 +221,20 @@ function buildMcpServer(env: Env) {
     content: [{ type: "text" as const, text: JSON.stringify(obj, null, 2) }],
   });
 
-  // Tool: buscar productos
+  /**
+   *  list_products
+   * - filtro opcional por texto (nombre/descripcion)
+   * - devuelve max 50
+   */
   server.tool(
-    "products_search",
-    "Busca productos disponibles. Opcional: filtrar por texto (q) en nombre o descripción.",
+    "list_products",
+    "Lista productos disponibles. Filtro opcional 'q' (busca en nombre o descripción).",
     { q: z.string().optional() },
     async ({ q }) => {
       let sql = `
-        SELECT id, name, description, price, stock
+        SELECT
+          id, name, description, price, stock,
+          tipo_prenda, talla, color, categoria
         FROM products
         WHERE disponible = 1
       `;
@@ -186,15 +252,21 @@ function buildMcpServer(env: Env) {
     }
   );
 
-  // Tool: detalle de producto
+  /**
+   *  get_product_details
+   * - detalle por ID + tiers (si existen)
+   */
   server.tool(
-    "product_get",
-    "Obtiene el detalle de un producto por id (incluye tiers de precio si existen).",
+    "get_product_details",
+    "Obtiene detalle de un producto por id (incluye tiers de precio si existen).",
     { id: z.number().int().positive() },
     async ({ id }) => {
       const product = await env.DB.prepare(
-        `SELECT id, name, description, price, stock, tipo_prenda, talla, color, categoria, disponible
-         FROM products WHERE id = ?`
+        `SELECT
+           id, name, description, price, stock,
+           tipo_prenda, talla, color, categoria, disponible
+         FROM products
+         WHERE id = ?`
       )
         .bind(id)
         .first<any>();
@@ -202,7 +274,10 @@ function buildMcpServer(env: Env) {
       if (!product) return asText({ error: "not_found" });
 
       const tiers = await env.DB.prepare(
-        `SELECT min_qty, price FROM product_price_tiers WHERE product_id = ? ORDER BY min_qty ASC`
+        `SELECT min_qty, price
+         FROM product_price_tiers
+         WHERE product_id = ?
+         ORDER BY min_qty ASC`
       )
         .bind(id)
         .all<any>();
@@ -211,9 +286,13 @@ function buildMcpServer(env: Env) {
     }
   );
 
-  // Tool: crear carrito
+  /**
+   *  create_cart
+   * - crea o reutiliza carrito por conversation_id
+   * - devuelve view (con precios por volumen correctos)
+   */
   server.tool(
-    "cart_create",
+    "create_cart",
     "Crea (o reutiliza) un carrito para un conversation_id y devuelve el estado del carrito.",
     { conversation_id: z.string().min(1) },
     async ({ conversation_id }) => {
@@ -223,22 +302,15 @@ function buildMcpServer(env: Env) {
     }
   );
 
-  // Tool: ver carrito
+  /**
+   *  update_cart (EXTRA)
+   * - add/set/remove
+   * - valida stock
+   * - devuelve view con unit_price correcto segun qty (tiers)
+   */
   server.tool(
-    "cart_get",
-    "Obtiene el carrito (y sus items) para un conversation_id.",
-    { conversation_id: z.string().min(1) },
-    async ({ conversation_id }) => {
-      const view = await getCart(env, conversation_id);
-      if (!view) return asText({ error: "not_found" });
-      return asText(view);
-    }
-  );
-
-  // Tool: actualizar carrito
-  server.tool(
-    "cart_update",
-    "Actualiza el carrito: add/set/remove un producto (valida stock).",
+    "update_cart",
+    "Actualiza el carrito: add/set/remove un producto (valida stock y aplica precios por volumen en el view).",
     {
       conversation_id: z.string().min(1),
       product_id: z.number().int().positive(),
@@ -248,13 +320,16 @@ function buildMcpServer(env: Env) {
     async ({ conversation_id, product_id, action, qty }) => {
       const cart = await getOrCreateCart(env, conversation_id);
 
+      // valida producto disponible
       const product = await env.DB.prepare(
-        "SELECT id, stock FROM products WHERE id = ? AND disponible = 1"
+        "SELECT id, stock, disponible FROM products WHERE id = ?"
       )
         .bind(product_id)
         .first<any>();
 
-      if (!product) return asText({ error: "bad_request", message: "product_not_found_or_not_available" });
+      if (!product || Number(product.disponible) !== 1) {
+        return asText({ error: "bad_request", message: "product_not_found_or_not_available" });
+      }
 
       const existing = await env.DB.prepare(
         "SELECT id, qty FROM cart_items WHERE cart_id = ? AND product_id = ?"
@@ -276,10 +351,15 @@ function buildMcpServer(env: Env) {
         return asText({ error: "bad_request", message: "qty must be positive" });
       }
 
-      const newQty = action === "add" ? (Number(existing?.qty ?? 0) + nQty) : nQty;
+      const newQty = action === "add" ? Number(existing?.qty ?? 0) + nQty : nQty;
 
       if (newQty > Number(product.stock)) {
-        return asText({ error: "bad_request", message: "insufficient_stock" });
+        return asText({
+          error: "bad_request",
+          message: "insufficient_stock",
+          stock: Number(product.stock),
+          requested: newQty,
+        });
       }
 
       if (existing) {
@@ -295,6 +375,20 @@ function buildMcpServer(env: Env) {
       }
 
       return asText({ ok: true, view: await getCart(env, conversation_id) });
+    }
+  );
+
+  /**
+   * (Opcional) ver carrito: útil para el agente
+   */
+  server.tool(
+    "get_cart",
+    "Obtiene el carrito (y sus items) para un conversation_id.",
+    { conversation_id: z.string().min(1) },
+    async ({ conversation_id }) => {
+      const view = await getCart(env, conversation_id);
+      if (!view) return asText({ error: "not_found" });
+      return asText(view);
     }
   );
 
@@ -315,12 +409,12 @@ export default {
      * ============================
      * MCP (Streamable HTTP) en /mcp
      * ============================
-     * Cloudflare recomienda createMcpHandler + ruta /mcp. :contentReference[oaicite:2]{index=2}
      */
     if (path === "/mcp" || path.startsWith("/mcp/")) {
+      if (!isAuthorized(request, env)) return unauthorized();
+
       const server = buildMcpServer(env);
 
-      // Importante: route = "/mcp" (default), CORS abierto para dashboard
       const handler = createMcpHandler(server, {
         route: "/mcp",
         corsOptions: {
@@ -329,49 +423,48 @@ export default {
           headers: "Content-Type, Authorization",
           maxAge: 86400,
         },
-        // Si Laburen necesitara modo JSON-only, podrías activar esto:
         // enableJsonResponse: true,
       });
 
       return handler(request, env, ctx);
     }
 
-    // OPTIONS (para tus endpoints HTTP normales)
-    if (request.method === "OPTIONS") {
-      return handleOptions(request);
-    }
+    // OPTIONS (endpoints HTTP normales)
+    if (request.method === "OPTIONS") return handleOptions(request);
 
     /**
-     * ============================
      * Healthcheck
-     * ============================
      */
     if (path === "/" && request.method === "GET") {
       return json({
         status: "ok",
         service: "laburen-mcp",
         hint: "MCP endpoint is /mcp",
+        tools: ["list_products", "get_product_details", "create_cart", "update_cart", "get_cart"],
       });
     }
 
     /**
      * ============================
-     * GET /products?q=...
+     * HTTP REST (por si lo usás)
      * ============================
+     * GET /products?q=...
      */
     if (path === "/products" && request.method === "GET") {
       const q = url.searchParams.get("q");
 
       let sql = `
-        SELECT id, name, description, price, stock
+        SELECT
+          id, name, description, price, stock,
+          tipo_prenda, talla, color, categoria
         FROM products
         WHERE disponible = 1
       `;
       const params: any[] = [];
 
-      if (q) {
+      if (q?.trim()) {
         sql += ` AND (name LIKE ? OR description LIKE ?)`;
-        params.push(`%${q}%`, `%${q}%`);
+        params.push(`%${q.trim()}%`, `%${q.trim()}%`);
       }
 
       sql += ` ORDER BY id ASC LIMIT 50`;
@@ -381,17 +474,18 @@ export default {
     }
 
     /**
-     * ============================
      * GET /products/:id
-     * ============================
      */
     const pm = path.match(/^\/products\/(\d+)$/);
     if (pm && request.method === "GET") {
       const id = Number(pm[1]);
 
       const product = await env.DB.prepare(
-        `SELECT id, name, description, price, stock, tipo_prenda, talla, color, categoria, disponible
-         FROM products WHERE id = ?`
+        `SELECT
+           id, name, description, price, stock,
+           tipo_prenda, talla, color, categoria, disponible
+         FROM products
+         WHERE id = ?`
       )
         .bind(id)
         .first<any>();
@@ -399,7 +493,10 @@ export default {
       if (!product) return json({ error: "not_found" }, 404);
 
       const tiers = await env.DB.prepare(
-        `SELECT min_qty, price FROM product_price_tiers WHERE product_id = ? ORDER BY min_qty ASC`
+        `SELECT min_qty, price
+         FROM product_price_tiers
+         WHERE product_id = ?
+         ORDER BY min_qty ASC`
       )
         .bind(id)
         .all<any>();
@@ -408,9 +505,7 @@ export default {
     }
 
     /**
-     * ============================
-     * POST /carts
-     * ============================
+     * POST /carts  { conversation_id }
      */
     if (path === "/carts" && request.method === "POST") {
       const body = await readJson<{ conversation_id?: string }>(request);
@@ -423,9 +518,7 @@ export default {
     }
 
     /**
-     * ============================
      * GET /carts/:conversation_id
-     * ============================
      */
     const cm = path.match(/^\/carts\/([^/]+)$/);
     if (cm && request.method === "GET") {
@@ -436,9 +529,7 @@ export default {
     }
 
     /**
-     * ============================
      * POST /carts/update
-     * ============================
      */
     if (path === "/carts/update" && request.method === "POST") {
       const body = await readJson<{
@@ -449,57 +540,48 @@ export default {
       }>(request);
 
       if (!body.conversation_id) return badRequest("conversation_id is required");
-      if (!body.product_id || !Number.isFinite(body.product_id))
-        return badRequest("product_id is required");
+      if (!body.product_id || !Number.isFinite(body.product_id)) return badRequest("product_id is required");
       if (!body.action) return badRequest("action is required");
 
-      const cart = await getOrCreateCart(env, body.conversation_id);
+      // Reutilizamos la lógica del tool
+      const conversation_id = body.conversation_id;
+      const cart = await getOrCreateCart(env, conversation_id);
 
-      const product = await env.DB.prepare(
-        "SELECT id, stock FROM products WHERE id = ? AND disponible = 1"
-      )
+      const product = await env.DB.prepare("SELECT id, stock, disponible FROM products WHERE id = ?")
         .bind(body.product_id)
         .first<any>();
 
-      if (!product) return badRequest("product_not_found_or_not_available");
+      if (!product || Number(product.disponible) !== 1) return badRequest("product_not_found_or_not_available");
 
-      const existing = await env.DB.prepare(
-        "SELECT id, qty FROM cart_items WHERE cart_id = ? AND product_id = ?"
-      )
+      const existing = await env.DB.prepare("SELECT id, qty FROM cart_items WHERE cart_id = ? AND product_id = ?")
         .bind(cart.id, body.product_id)
         .first<any>();
 
       if (body.action === "remove") {
         if (existing) {
-          await env.DB.prepare("DELETE FROM cart_items WHERE id = ?")
-            .bind(existing.id)
-            .run();
+          await env.DB.prepare("DELETE FROM cart_items WHERE id = ?").bind(existing.id).run();
         }
-        return json({ ok: true, view: await getCart(env, body.conversation_id) });
+        return json({ ok: true, view: await getCart(env, conversation_id) });
       }
 
       const qty = Number(body.qty ?? 0);
-      if (qty <= 0) return badRequest("qty must be positive");
+      if (!Number.isFinite(qty) || qty <= 0) return badRequest("qty must be positive");
 
-      const newQty = body.action === "add" ? (existing?.qty ?? 0) + qty : qty;
+      const newQty = body.action === "add" ? Number(existing?.qty ?? 0) + qty : qty;
 
-      if (newQty > product.stock) {
-        return badRequest("insufficient_stock");
+      if (newQty > Number(product.stock)) {
+        return badRequest("insufficient_stock", { stock: Number(product.stock), requested: newQty });
       }
 
       if (existing) {
-        await env.DB.prepare("UPDATE cart_items SET qty = ? WHERE id = ?")
-          .bind(newQty, existing.id)
-          .run();
+        await env.DB.prepare("UPDATE cart_items SET qty = ? WHERE id = ?").bind(newQty, existing.id).run();
       } else {
-        await env.DB.prepare(
-          "INSERT INTO cart_items (id, cart_id, product_id, qty) VALUES (?, ?, ?, ?)"
-        )
+        await env.DB.prepare("INSERT INTO cart_items (id, cart_id, product_id, qty) VALUES (?, ?, ?, ?)")
           .bind(crypto.randomUUID(), cart.id, body.product_id, newQty)
           .run();
       }
 
-      return json({ ok: true, view: await getCart(env, body.conversation_id) });
+      return json({ ok: true, view: await getCart(env, conversation_id) });
     }
 
     return notFound(url.pathname);
