@@ -1,7 +1,8 @@
 // src/mcp-server/server.ts
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-
+import { z } from "zod";
+import { cwAddLabels } from "../chatwoot/labels";
 import type { Env } from "../db/client";
 import { mcpResult } from "./result";
 import {
@@ -346,6 +347,25 @@ export function buildMcpServer(env: Env) {
       return mcpResult({ ok: true, issues: res.issues, view: res.view });
     }
   );
+
+  server.tool(
+  "add_labels",
+  "Agrega labels de Chatwoot a la conversación (no pisa: mergea).",
+    {
+        conversation_id: z.string(),
+        labels: z.array(z.string()).min(1),
+    },
+    async ({ conversation_id, labels }) => {
+        const merged = await cwAddLabels(env, conversation_id, labels);
+
+        return {
+        content: [
+            { type: "text", text: `OK. Labels ahora: ${merged.join(", ")}` },
+        ],
+        };
+    }
+    );
+
 
   return server;
 }

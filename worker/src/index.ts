@@ -11,6 +11,7 @@ import { writeAuditLog, logConsole } from "./audit/audit";
 import { buildMcpServer } from "./mcp-server/server";
 import { listProductsDb } from "./db/products";
 
+
 type ApiOk<T> = { ok: true; data: T; request_id: string };
 type ApiErr = {
   ok: false;
@@ -185,6 +186,7 @@ export default {
               "update_cart",
               "get_cart",
               "validate_cart",
+              "add_labels",
             ],
           },
         };

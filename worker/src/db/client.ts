@@ -1,13 +1,14 @@
-// src/db/client.ts
-
 export interface Env {
   DB: D1Database;
 
-  // Auth
   MCP_AUTH_TOKEN?: string;
-  MCP_AUTH_DISABLED?: string; // "true" para desactivar auth en dev
+  MCP_AUTH_DISABLED?: string;
 
-  // Logging/Audit
-  LOG_TO_DB?: string; // "true" para guardar logs en D1
-  LOG_BODY_MAX?: string; // por ej "1500"
+  LOG_BODY_MAX?: string;
+
+  // Chatwoot
+  CHATWOOT_BASE_URL: string;
+  CHATWOOT_ACCOUNT_ID: string;
+  CHATWOOT_API_TOKEN: string;
 }
+
