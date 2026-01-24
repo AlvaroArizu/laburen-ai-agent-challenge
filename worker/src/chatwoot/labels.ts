@@ -1,4 +1,3 @@
-// src/chatwoot/labels.ts
 import type { Env } from "../db/client";
 
 type CwLabelsResponse = { payload?: string[] };

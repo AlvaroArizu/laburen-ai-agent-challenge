@@ -1,5 +1,3 @@
-// src/audit/audit.ts
-
 import type { Env } from "../db/client";
 import { truthy } from "../utils/text";
 
@@ -34,7 +32,7 @@ export async function writeAuditLog(
     ? `conv:${row.conversation_id}`
     : `req:${row.request_id}`;
 
-  // ✅ Solo actualizar conversation_key si hay conversation_id (para no pisar conv:* con req:*)
+  
   const conversation_key_for_update = row.conversation_id ? conversation_key : null;
 
   // 1) Inserta si no existe

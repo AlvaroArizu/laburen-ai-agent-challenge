@@ -4,7 +4,7 @@ export interface Env {
   MCP_AUTH_TOKEN?: string;
   MCP_AUTH_DISABLED?: string;
 
-  LOG_BODY_MAX?: string;
+  LOG_BODY_MAX?: string;LOG_TO_DB?: string;
 
   // Chatwoot
   CHATWOOT_BASE_URL: string;

@@ -1,12 +1,9 @@
-// src/db/pricing.ts
-
 import type { Env } from "./client";
 
 /**
  * Pricing helpers (tiers)
  * - base: products.price
  * - tiers: product_price_tiers min_qty <= qty (highest wins)
- * Returns tier label for agent readability.
  */
 export async function getUnitPriceForQty(env: Env, product_id: number, qty: number) {
   const base = await env.DB.prepare(

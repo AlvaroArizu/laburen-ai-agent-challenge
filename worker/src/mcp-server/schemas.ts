@@ -1,5 +1,3 @@
-// src/mcp-server/schemas.ts
-
 import { z } from "zod";
 
 export const listProductsSchema = z.object({

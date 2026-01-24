@@ -1,5 +1,3 @@
-// src/utils/text.ts
-
 export function nowIso() {
   return new Date().toISOString();
 }

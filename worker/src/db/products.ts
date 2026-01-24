@@ -1,5 +1,3 @@
-// src/db/products.ts
-
 import type { Env } from "./client";
 import { clamp, singularizeEs } from "../utils/text";
 

@@ -1,5 +1,3 @@
-// src/mcp-server/server.ts
-
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 

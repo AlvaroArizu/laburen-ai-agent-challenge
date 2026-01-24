@@ -1,5 +1,3 @@
-// src/index.ts
-
 import { createMcpHandler } from "agents/mcp";
 
 import type { Env } from "./db/client";
