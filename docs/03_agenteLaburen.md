@@ -104,7 +104,6 @@ Las etiquetas están predefinidas en Chatwoot y se aplican automáticamente al u
 
 ## Acciones / controles disponibles en Laburen
 - **MCP Conexión**: habilita la ejecución de tools del MCP.
-- **Pensamiento**: mejora coherencia interna del agente.
 - **Requiero asistencia**: dispara derivación a humano en escenarios definidos.
 - **Mark as Resolved**: permite cerrar conversaciones resueltas.
 

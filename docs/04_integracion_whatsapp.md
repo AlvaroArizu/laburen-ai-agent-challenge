@@ -15,8 +15,8 @@ En esta sección documento la integración end-to-end:
 -  Meta App configurada con **WhatsApp Cloud API**.
 -  Envío/recepción de mensajes con el número de WhatsApp Cloud.
 -  Webhook configurado en Meta apuntando a Chatwoot.
--  Chatwoot tiene un **Inbox WhatsApp Cloud** operativo y asociado al bot.
--  El bot responde y consume el MCP desde la plataforma de Laburen.
+-  Chatwoot tiene un **Inbox WhatsApp Cloud** operativo y asociado al agente.
+-  El agente responde y consume el MCP desde la plataforma de Laburen.
 
 ---
 
@@ -35,8 +35,8 @@ Esto limita el volumen de testing, pero **la integración técnica y el flujo co
 1) Usuario envía mensaje a WhatsApp del negocio.  
 2) Meta entrega el evento a mi **Webhook**.  
 3) Chatwoot recibe el evento y crea/actualiza conversación en el inbox.  
-4) El inbox dispara el bot (Agente Laburen).  
-5) El agente responde (y si corresponde consume MCP: `list_products`, `create_cart`, `update_cart`, etc.).  
+4) El inbox dispara el Agente Laburen.  
+5) El agente responde (y consume MCP: `list_products`, `create_cart`, `update_cart`, etc.).  
 6) Chatwoot envía la respuesta a Meta y Meta la entrega a WhatsApp.
 
 ---

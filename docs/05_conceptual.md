@@ -21,7 +21,7 @@ El agente actúa como **asistente de ventas** por WhatsApp:
 - `get_cart` — estado del carrito (items + totales)  
 - `validate_cart` — detecta inconsistencias (insufficient_stock / not_available)  
 - `handoff_to_human` — derivación a operador (Chatwoot)  
-- `add_labels` — etiquetado manual (si hace falta)
+- `add_labels` — etiquetado 
 
 ---
 

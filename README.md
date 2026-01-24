@@ -27,6 +27,14 @@ wrangler -v
 
 ---
 
+## Links de prueba (rápido)
+- **WhatsApp (número común):** +1 (555) 827-9088  (5 Mensajes de prueba cada 24hs)
+- **Chatwoot (CRM):** https://chatwootchallenge.laburen.com/  
+- **MCP (Cloudflare Worker):** https://worker.alvaro-laburen.workers.dev/mcp  
+- **Repositorio:** git@github.com:AlvaroArizu/laburen-ai-agent-challenge.git
+
+---
+
 ## Quickstart (local)
 
 ### 1) Clonar e instalar
@@ -49,9 +57,16 @@ wrangler d1 execute laburen_challenge --file=./schema.sql
 ```
 
 ### 4) Cargar datos de ejemplo (local)
+
+**Datos de prueba (seed):**
+- **Input:** `sample-data/products.xlsx` (catálogo fuente)
+- **Script:** `./scripts/generate-seed.js` (convierte Excel → SQL)
+- **Output:** `./seed.sql` (inserta productos en `products` y extras si aplica)
+
 Opción A — usar el seed listo:
 ```bash
 wrangler d1 execute laburen_challenge --file=./seed.sql
+
 ```
 
 Opción B — regenerar el seed desde el Excel (si se necesita):
@@ -66,6 +81,9 @@ Verificar que haya datos:
 wrangler d1 execute laburen_challenge --command "SELECT COUNT(*) AS products FROM products;"
 wrangler d1 execute laburen_challenge --command "SELECT COUNT(*) AS carts FROM carts;"
 ```
+
+Si tu Excel no está en `sample-data/products.xlsx`, cambiá solo esa ruta por la real (por ejemplo `./products.xlsx`).
+
 
 ### 5) Ejecutar worker local
 ```bash

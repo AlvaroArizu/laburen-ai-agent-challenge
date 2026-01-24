@@ -93,17 +93,6 @@ El endpoint del MCP soporta autenticación por token:
 
 > En el repositorio/documentación los secretos se encuentran **enmascarados** y se cargan como **secrets** en el entorno de Cloudflare.
 
----
-
-## Cómo se prueba (sin depender de WhatsApp)
-El evaluador puede probar el comportamiento del agente en Chatwoot, y el consumo del MCP se observa por logs/resultado.
-
-Checklist mínimo:
-1. `list_products` devuelve items + paginación.
-2. `get_product_details` devuelve detalle por ID.
-3. `create_cart` crea/reutiliza carrito por `conversation_id`.
-4. `update_cart` agrega/setea/remueve y valida stock.
-5. `get_cart` devuelve el estado consistente del carrito.
 
 ---
 
