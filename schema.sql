@@ -40,3 +40,23 @@ CREATE TABLE IF NOT EXISTS cart_items (
   FOREIGN KEY(cart_id) REFERENCES carts(id),
   FOREIGN KEY(product_id) REFERENCES products(id)
 );
+
+CREATE TABLE IF NOT EXISTS request_logs (
+  id TEXT PRIMARY KEY,
+  ts TEXT NOT NULL,
+  source TEXT NOT NULL,
+  path TEXT NOT NULL,
+  method TEXT NOT NULL,
+  tool TEXT,
+  conversation_id TEXT,
+  ok INTEGER NOT NULL,
+  status INTEGER,
+  duration_ms INTEGER NOT NULL,
+  error_code TEXT,
+  input_preview TEXT,
+  output_preview TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_request_logs_ts ON request_logs(ts);
+CREATE INDEX IF NOT EXISTS idx_request_logs_source ON request_logs(source);
+CREATE INDEX IF NOT EXISTS idx_request_logs_conv ON request_logs(conversation_id);
