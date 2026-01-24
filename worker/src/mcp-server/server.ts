@@ -2,7 +2,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { cwAddLabels } from "../chatwoot/labels";
+
 import type { Env } from "../db/client";
 import { mcpResult } from "./result";
 import {
@@ -20,6 +20,8 @@ import {
 import { listProductsDb, listFacetsDb, getProductById, getPriceTiers, getProductsByIdsDb } from "../db/products";
 import { getUnitPriceForQty } from "../db/pricing";
 import { getOrCreateCart, getCart, validateCart } from "../db/cart";
+
+import { cwAddLabels } from "../chatwoot/labels";
 
 export function buildMcpServer(env: Env) {
   const server = new McpServer({
@@ -47,7 +49,6 @@ export function buildMcpServer(env: Env) {
         ok: true,
         filters: {
           ...data.filters,
-          // alias informativo para agentes
           aliases: {
             talle: input.talle ? true : undefined,
             estilo: input.estilo ? true : undefined,
@@ -61,7 +62,6 @@ export function buildMcpServer(env: Env) {
           "Si el usuario dice 'en stock' normalmente significa vendible+stock => usar disponible='si' e in_stock='si'. " +
           "Si pide 'aunque no esté disponible', usar disponible='all' e in_stock='si'. " +
           "Para 'todos', usar disponible='all' e in_stock='all'.",
-        // (no cambia funcionalidad: solo preservamos el input disponible)
         conversation_id: conversation_id || undefined,
       });
     }
@@ -204,6 +204,12 @@ export function buildMcpServer(env: Env) {
     async ({ conversation_id }: { conversation_id: string }) => {
       const cart = await getOrCreateCart(env, conversation_id);
       const view = await getCart(env, conversation_id);
+
+      // ✅ etiquetas automáticas
+      await cwAddLabels(env, conversation_id, ["carrito_activo"]);
+      const hasItems = Array.isArray((view as any)?.items) && (view as any).items.length > 0;
+      if (hasItems) await cwAddLabels(env, conversation_id, ["producto_agregado"]);
+
       return mcpResult({ ok: true, cart, view });
     }
   );
@@ -225,6 +231,10 @@ export function buildMcpServer(env: Env) {
 
       if (action === "clear") {
         await env.DB.prepare("DELETE FROM cart_items WHERE cart_id = ?").bind(cart.id).run();
+
+        // ✅ al vaciar: seguimos marcando carrito_activo (hubo compra) y quitamos nada (mergea)
+        await cwAddLabels(env, conversation_id, ["carrito_activo"]);
+
         return mcpResult({ ok: true, view: await getCart(env, conversation_id) });
       }
 
@@ -310,6 +320,19 @@ export function buildMcpServer(env: Env) {
       }
 
       const view = await getCart(env, conversation_id);
+
+      // ✅ etiquetas automáticas (según labels reales que creaste)
+      const labelsToAdd: string[] = ["carrito_activo"];
+
+      if (action === "add") {
+        labelsToAdd.push("producto_agregado", "interes_en_comprar");
+      }
+
+      const hasItems = Array.isArray((view as any)?.items) && (view as any).items.length > 0;
+      if (hasItems) labelsToAdd.push("producto_agregado");
+
+      await cwAddLabels(env, conversation_id, labelsToAdd);
+
       return mcpResult({ ok: true, errors, view });
     }
   );
@@ -344,28 +367,46 @@ export function buildMcpServer(env: Env) {
     async ({ conversation_id }: { conversation_id: string }) => {
       const res = await validateCart(env, conversation_id);
       if (!res.ok) return mcpResult({ ok: false, error: { code: res.error, message: "Carrito no encontrado" } }, true);
+
+      // Si querés marcar interés/estado al validar:
+      await cwAddLabels(env, conversation_id, ["carrito_activo"]);
+
       return mcpResult({ ok: true, issues: res.issues, view: res.view });
     }
   );
 
+  /**
+   * add_labels (manual)
+   */
   server.tool(
-  "add_labels",
-  "Agrega labels de Chatwoot a la conversación (no pisa: mergea).",
+    "add_labels",
+    "Agrega labels de Chatwoot a la conversación (no pisa: mergea).",
     {
-        conversation_id: z.string(),
-        labels: z.array(z.string()).min(1),
+      conversation_id: z.string(),
+      labels: z.array(z.string()).min(1),
     },
     async ({ conversation_id, labels }) => {
-        const merged = await cwAddLabels(env, conversation_id, labels);
-
-        return {
-        content: [
-            { type: "text", text: `OK. Labels ahora: ${merged.join(", ")}` },
-        ],
-        };
+      const merged = await cwAddLabels(env, conversation_id, labels);
+      return { content: [{ type: "text", text: `OK. Labels ahora: ${merged.join(", ")}` }] };
     }
-    );
+  );
 
+  /**
+   * handoff_to_human (derivación real)
+   */
+  server.tool(
+    "handoff_to_human",
+    "Deriva a un humano: aplica label derivar_a_humano (y devuelve texto de handoff).",
+    {
+      conversation_id: z.string(),
+      motivo: z.string().optional(),
+    },
+    async ({ conversation_id, motivo }) => {
+      await cwAddLabels(env, conversation_id, ["derivar_a_humano"]);
+      const msg = `Listo 😊 Ya te derivo con un operador humano.${motivo ? ` Motivo: ${motivo}` : ""}`;
+      return { content: [{ type: "text", text: msg }] };
+    }
+  );
 
   return server;
 }

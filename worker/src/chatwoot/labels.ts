@@ -1,5 +1,7 @@
 // src/chatwoot/labels.ts
-import type { Env } from "../index"; // o mové Env a un types.ts (ver nota abajo)
+import type { Env } from "../db/client";
+
+type CwLabelsResponse = { payload?: string[] };
 
 function normalizeBaseUrl(url: string) {
   return url.replace(/\/+$/, "");
@@ -14,8 +16,9 @@ export async function cwGetLabels(env: Env, conversationId: string): Promise<str
   });
 
   if (!r.ok) throw new Error(`Chatwoot GET labels failed: ${r.status}`);
-  const data = await r.json();
-  return (data?.payload ?? []) as string[];
+
+  const data = (await r.json()) as CwLabelsResponse;
+  return (data.payload ?? []) as string[];
 }
 
 export async function cwSetLabels(env: Env, conversationId: string, labels: string[]) {

@@ -187,7 +187,9 @@ export default {
               "get_cart",
               "validate_cart",
               "add_labels",
+              "handoff_to_human",
             ],
+
           },
         };
         return jsonResponse(out, 200, { "x-request-id": rc.request_id });
